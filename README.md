@@ -19,15 +19,15 @@ Créer un fichier `.env` à la racine :
 ```
 DISCORD_TOKEN=token_du_bot_discord
 EXOPHASE_USER=pseudo_exophase
-ZENROWS_API_KEY=cle_api_zenrows
 UPDATE_INTERVAL=900000
 DEBUG=false
 ```
 
 - `DISCORD_TOKEN` (obligatoire) : token du bot Discord.
-- `EXOPHASE_USER` : pseudo du profil Exophase à surveiller.
-- `ZENROWS_API_KEY` : clé pour le contournement anti-bot si nécessaire.
+- `EXOPHASE_USER` : pseudo du profil Exophase à surveiller (défaut : `bloodshine`).
 - `UPDATE_INTERVAL` : intervalle entre deux vérifications, en ms (défaut : 900000 = 15 min).
+
+`ZENROWS_API_KEY` n'est pas utilisé par le code actuellement (aucun contournement anti-bot n'est implémenté) ; à ajouter uniquement si un blocage d'Exophase est constaté.
 
 ## Installation & lancement
 

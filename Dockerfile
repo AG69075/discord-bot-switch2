@@ -15,8 +15,7 @@ RUN apk add --no-cache \
     nss \
     dbus
 
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
     UPDATE_INTERVAL=900000 \
     NODE_ENV=production \
     HOME=/app

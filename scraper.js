@@ -1,14 +1,11 @@
-const puppeteer = require('puppeteer');
-const fs = require('fs');
-const path = require('path');
+const puppeteer = require('puppeteer-core');
 
-const EXOPHASE_URL = 'https://www.exophase.com/user/bloodshine/';
-const LOG_FILE = path.join(__dirname, 'logs', 'bot.log');
+const EXOPHASE_USER = process.env.EXOPHASE_USER || 'bloodshine';
+const EXOPHASE_URL = `https://www.exophase.com/user/${encodeURIComponent(EXOPHASE_USER)}/`;
 
 function log(msg) {
-  const line = '[' + new Date().toLocaleString('fr-FR') + '] [Scraper] ' + msg + '\n';
-  process.stdout.write(line);
-  try { fs.appendFileSync(LOG_FILE, line); } catch(e) {}
+  const line = '[' + new Date().toLocaleString('fr-FR') + '] [Scraper] ' + msg;
+  console.log(line);
 }
 
 async function getLatestSwitch2Game() {
