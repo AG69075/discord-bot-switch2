@@ -4,8 +4,8 @@ Bot Discord qui affiche automatiquement, en statut d'activité (« 🕹️ En tr
 
 ## Fonctionnement
 
-- [scraper.js](scraper.js) lance un navigateur headless (Puppeteer/Chromium) sur la page du profil Exophase configuré, extrait la liste des jeux (`window.playerGames`) et retient celui avec le `lastplayed` le plus récent parmi les plateformes Switch/Switch 2.
-- [index.js](index.js) se connecte à Discord, appelle le scraper au démarrage puis à intervalle régulier, et met à jour la présence du bot uniquement si le jeu détecté a changé.
+- [scraper.js](scraper.js) récupère la page du profil Exophase via une simple requête HTTP ([impit](https://www.npmjs.com/package/impit), qui imite l'empreinte TLS d'un navigateur pour passer le filtrage Cloudflare), extrait la liste des jeux écrite en dur dans le HTML (`window.playerGames`) et retient celui avec le `lastplayed` le plus récent parmi les plateformes Switch/Switch 2. Pas de navigateur headless : empreinte mémoire minime.
+- [index.js](index.js) se connecte à Discord, appelle le scraper au démarrage puis à intervalle régulier, et réaffirme la présence du bot à chaque cycle (ainsi que sur `shardResume`, Discord pouvant perdre la présence lors d'une reconnexion du gateway).
 
 ## Prérequis
 
@@ -27,7 +27,7 @@ DEBUG=false
 - `EXOPHASE_USER` : pseudo du profil Exophase à surveiller (défaut : `bloodshine`).
 - `UPDATE_INTERVAL` : intervalle entre deux vérifications, en ms (défaut : 900000 = 15 min).
 
-`ZENROWS_API_KEY` n'est pas utilisé par le code actuellement (aucun contournement anti-bot n'est implémenté) ; à ajouter uniquement si un blocage d'Exophase est constaté.
+Le contournement du filtrage Cloudflare d'Exophase repose uniquement sur l'imitation de l'empreinte TLS par `impit` (Cloudflare ne sert ici qu'un filtrage passif, pas de challenge JS à résoudre). Si Exophase durcit sa protection, envisager un sidecar type FlareSolverr ou un retour à un navigateur headless.
 
 ## Installation & lancement
 
@@ -38,18 +38,21 @@ npm start
 
 ## Docker
 
-Une image Docker (Node 22 Alpine + Chromium) est fournie :
+Une image Docker légère (Node 22 Alpine, sans navigateur) est fournie :
 
 ```bash
 docker build -t discord-bot-switch2 .
 docker run --env-file .env discord-bot-switch2
 ```
 
+Le binaire natif d'`impit` adapté à la plateforme est téléchargé au `npm ci`
+pendant le build (prebuilds `linux-x64-musl` / `linux-arm64-musl` inclus).
+
 ## Structure
 
 | Fichier | Rôle |
 |---|---|
 | `index.js` | Démarrage du bot Discord, boucle de mise à jour de la présence |
-| `scraper.js` | Scraping du profil Exophase via Puppeteer |
+| `scraper.js` | Récupération HTTP du profil Exophase et extraction du dernier jeu Switch |
 | `test-scraper.js` | Script de test du scraper en isolation |
 | `Dockerfile` | Image de production (utilisateur non-root, healthcheck, tini) |
