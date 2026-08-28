@@ -32,24 +32,22 @@ async function updatePresence() {
   try {
     const game = await getLatestSwitch2Game();
     if (game) {
-      if (game !== lastGame) {
-        lastGame = game;
-        await client.user.setPresence({
-          activities: [{ name: '🕹️ ' + game, type: ActivityType.Playing }],
-          status: 'online',
-        });
-        log(`[Bot] ✅ Activité mise à jour : 🕹️ ${game}`);
-      } else {
-        log(`[Bot] Pas de changement : ${game}`);
-      }
+      const changed = game !== lastGame;
+      lastGame = game;
+      // Renvoyé à chaque cycle même sans changement : Discord peut perdre la
+      // présence (reconnexion/resume du gateway) sans que le bot le sache,
+      // donc on ne peut pas se fier uniquement au cache local pour décider.
+      await client.user.setPresence({
+        activities: [{ name: '🕹️ ' + game, type: ActivityType.Playing }],
+        status: 'online',
+      });
+      log(changed
+        ? `[Bot] ✅ Activité mise à jour : 🕹️ ${game}`
+        : `[Bot] Présence réaffirmée (pas de changement) : ${game}`);
     } else {
-      if (lastGame !== null) {
-        lastGame = null;
-        await client.user.setPresence({ activities: [], status: 'online' });
-        log('[Bot] Activité effacée.');
-      } else {
-        log('[Bot] Aucun jeu Switch 2, activité déjà vide.');
-      }
+      lastGame = null;
+      await client.user.setPresence({ activities: [], status: 'online' });
+      log('[Bot] Aucun jeu Switch 2, activité vide.');
     }
   } catch (err) {
     // Redirection des erreurs vers stderr
@@ -71,6 +69,18 @@ client.once('ready', async () => {
 
 // Séparation des logs d'erreurs (stderr)
 client.on('error', (err) => console.error(`[Bot] Erreur Discord: ${err.message}`));
+
+// Discord efface la présence lors d'une reconnexion/resume du gateway ;
+// on la réapplique immédiatement plutôt que d'attendre le prochain scrape.
+client.on('shardResume', () => {
+  log('[Bot] Gateway reconnecté (resume), réapplication de la présence.');
+  if (lastGame) {
+    client.user.setPresence({
+      activities: [{ name: '🕹️ ' + lastGame, type: ActivityType.Playing }],
+      status: 'online',
+    }).catch(err => console.error(`[Bot] Erreur réapplication présence: ${err.message}`));
+  }
+});
 
 // --- RÉSILIENCE : Crash contrôlé ---
 process.on('unhandledRejection', (reason) => {
