@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer-core');
+const { Impit } = require('impit');
 
 const EXOPHASE_USER = process.env.EXOPHASE_USER || 'bloodshine';
 const EXOPHASE_URL = `https://www.exophase.com/user/${encodeURIComponent(EXOPHASE_USER)}/`;
@@ -8,68 +8,68 @@ function log(msg) {
   console.log(line);
 }
 
+// La page Exophase écrit la liste des jeux en dur dans le HTML sous la forme
+//   window.playerGames = '{ ... }';
+// (chaîne JS entièrement échappée). Aucun JS à exécuter : une simple requête
+// HTTP suffit. Cloudflare ne fait ici que du filtrage passif par empreinte TLS,
+// d'où l'usage d'impit qui imite le handshake d'un vrai navigateur.
+function extractPlayerGames(html) {
+  const m = html.match(/playerGames\s*=\s*'((?:[^'\\]|\\.)*)'/);
+  if (!m) return null;
+
+  // Le corps capturé est un littéral de chaîne JS : on le réinterprète comme
+  // une chaîne JSON (\uXXXX, \/, \\ sont communs aux deux ; seul \' diffère).
+  const asJsonString = '"' + m[1].replace(/(?<!\\)"/g, '\\"').replace(/\\'/g, "'") + '"';
+  const jsonText = JSON.parse(asJsonString);
+  return JSON.parse(jsonText);
+}
+
+function isSwitch(meta) {
+  const platforms = meta.platforms || [];
+  const slugs = meta.platform_slugs || [];
+  return platforms.some(p => {
+    const slug = (p.slug || '').toLowerCase();
+    const name = (p.name || '').toLowerCase();
+    return slug.includes('switch') || name.includes('switch');
+  }) || slugs.some(s => (s || '').toLowerCase().includes('switch'));
+}
+
 async function getLatestSwitch2Game() {
-  let browser;
-  log('Démarrage Puppeteer...');
+  log('Récupération de la page Exophase...');
   try {
-    browser = await puppeteer.launch({
-      headless: 'new',
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium',
-      dumpio: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-zygote',
-      ],
+    const impit = new Impit({ browser: 'chrome', timeout: 30000 });
+    const res = await impit.fetch(EXOPHASE_URL, {
+      headers: { 'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8' },
     });
-    log('Chromium lancé, navigation vers Exophase...');
+    if (!res.ok) { log('ERREUR: HTTP ' + res.status); return null; }
 
-    const page = await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
-    await page.goto(EXOPHASE_URL, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    log('Page chargée.');
+    const html = await res.text();
+    const data = extractPlayerGames(html);
+    if (!data) { log('ERREUR: window.playerGames introuvable dans le HTML'); return null; }
 
-    const result = await page.evaluate(() => {
-      if (typeof window.playerGames === 'undefined') return { error: 'window.playerGames absent' };
-      let data;
-      try {
-        data = typeof window.playerGames === 'string' ? JSON.parse(window.playerGames) : window.playerGames;
-      } catch(e) { return { error: 'Parse JSON: ' + e.message }; }
+    const games = data.games || [];
 
-      const games = data.games || [];
-
-      // Collecter TOUS les jeux Switch/Switch 2 et garder celui avec le lastplayed le plus récent
-      let latest = null;
-      for (const g of games) {
-        const meta = g.meta || {};
-        const platforms = meta.platforms || [];
-        const slugs = meta.platform_slugs || [];
-        const isS2 = platforms.some(p => {
-                    const slug = (p.slug||'').toLowerCase();
-                    const name = (p.name||'').toLowerCase();
-                    return slug.includes('switch') || name.includes('switch');
-                  }) || slugs.some(s => (s||'').toLowerCase().includes('switch'));
-        if (isS2 && (!latest || (g.lastplayed || 0) > (latest.lastplayed || 0))) {
-          latest = { title: meta.title, lastplayed: g.lastplayed, count: games.length };
-        }
+    // Collecter TOUS les jeux Switch/Switch 2 et garder celui avec le
+    // lastplayed le plus récent.
+    let latest = null;
+    for (const g of games) {
+      const meta = g.meta || {};
+      if (isSwitch(meta) && (!latest || (g.lastplayed || 0) > (latest.lastplayed || 0))) {
+        latest = { title: meta.title, lastplayed: g.lastplayed };
       }
+    }
 
-      if (latest) return latest;
-      return { notFound: true, count: games.length };
-    });
+    if (!latest) {
+      log('Aucun jeu Switch/Switch 2 parmi ' + games.length + ' jeux.');
+      return null;
+    }
+    log('✅ Trouvé : "' + latest.title + '" (joué le ' +
+      new Date(latest.lastplayed * 1000).toLocaleDateString('fr-FR') + ')');
+    return latest.title;
 
-    if (result.error) { log('ERREUR: ' + result.error); return null; }
-    if (result.notFound) { log('Aucun jeu Switch/Switch 2 parmi ' + result.count + ' jeux.'); return null; }
-    log('✅ Trouvé : "' + result.title + '" (joué le ' + new Date(result.lastplayed * 1000).toLocaleDateString('fr-FR') + ')');
-    return result.title;
-
-  } catch(err) {
-    log('ERREUR Puppeteer: ' + err.message);
+  } catch (err) {
+    log('ERREUR récupération : ' + err.message);
     return null;
-  } finally {
-    if (browser) { await browser.close(); log('Chromium fermé.'); }
   }
 }
 
