@@ -22,13 +22,29 @@ function log(msg) {
   console.log(line); // Docker va capturer ceci automatiquement
 }
 
+// discord.js v14 : setPresence() est SYNCHRONE (renvoie un ClientPresence, pas
+// une Promise) et peut lever une exception (ws pas prêt, nom invalide...).
+// On l'isole donc dans un try/catch pour ne jamais faire remonter d'erreur
+// jusqu'à un listener d'événement (ce qui crasherait le process).
+function applyPresence(game) {
+  try {
+    client.user.setPresence(game
+      ? { activities: [{ name: '🕹️ ' + game, type: ActivityType.Playing }], status: 'online' }
+      : { activities: [], status: 'online' });
+    return true;
+  } catch (err) {
+    console.error(`[Bot] Erreur setPresence: ${err.message}`);
+    return false;
+  }
+}
+
 async function updatePresence() {
   if (!client.user) { log('[Bot] client.user pas prêt, skip.'); return; }
   if (isUpdating) { log('[Bot] Déjà en cours, skip.'); return; }
-  
+
   isUpdating = true;
   log('[Bot] === Début scrape ===');
-  
+
   try {
     const game = await getLatestSwitch2Game();
     if (game) {
@@ -37,16 +53,13 @@ async function updatePresence() {
       // Renvoyé à chaque cycle même sans changement : Discord peut perdre la
       // présence (reconnexion/resume du gateway) sans que le bot le sache,
       // donc on ne peut pas se fier uniquement au cache local pour décider.
-      await client.user.setPresence({
-        activities: [{ name: '🕹️ ' + game, type: ActivityType.Playing }],
-        status: 'online',
-      });
+      applyPresence(game);
       log(changed
         ? `[Bot] ✅ Activité mise à jour : 🕹️ ${game}`
         : `[Bot] Présence réaffirmée (pas de changement) : ${game}`);
     } else {
       lastGame = null;
-      await client.user.setPresence({ activities: [], status: 'online' });
+      applyPresence(null);
       log('[Bot] Aucun jeu Switch 2, activité vide.');
     }
   } catch (err) {
@@ -74,19 +87,18 @@ client.on('error', (err) => console.error(`[Bot] Erreur Discord: ${err.message}`
 // on la réapplique immédiatement plutôt que d'attendre le prochain scrape.
 client.on('shardResume', () => {
   log('[Bot] Gateway reconnecté (resume), réapplication de la présence.');
-  if (lastGame) {
-    client.user.setPresence({
-      activities: [{ name: '🕹️ ' + lastGame, type: ActivityType.Playing }],
-      status: 'online',
-    }).catch(err => console.error(`[Bot] Erreur réapplication présence: ${err.message}`));
-  }
+  if (client.user && lastGame) applyPresence(lastGame);
 });
 
 // --- RÉSILIENCE : Crash contrôlé ---
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Promesse rejetée non gérée:', reason);
-  // On laisse le processus s'arrêter pour que Docker (tini) gère le redémarrage
-  process.exit(1); 
+  // On laisse le processus s'arrêter ; la policy de restart du conteneur relance.
+  process.exit(1);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Exception non interceptée:', err);
+  process.exit(1);
 });
 // -----------------------------------
 
