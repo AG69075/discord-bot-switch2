@@ -6,3 +6,6 @@ logs
 .DS_Store
 backup
 debug.html
+
+# IDE
+.idea/
